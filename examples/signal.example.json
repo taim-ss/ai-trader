@@ -1,0 +1,18 @@
+{
+  "as_of": "YYYY-MM-DD",
+  "run": "routine",
+  "sleeve": "demo",
+  "targets": {"MSFT": 0.10, "TSM": 0.05},
+  "reasons": {
+    "MSFT": "Template reason: cite the evidence for every non-zero weight.",
+    "TSM": "Template reason: a weight without a written reason is rejected."
+  },
+  "verdicts": {
+    "NVDA": {"action": "WAIT", "eur": 30, "condition": "After the next earnings reaction is known."},
+    "WORLD_ETF": {"action": "WAIT", "eur": 0, "condition": "EUR-listed: verdict-only, the demo executor cannot trade it."}
+  },
+  "forecasts": [
+    {"event": "MSFT closes higher in one week than today", "probability": 0.55, "resolution_date": "YYYY-MM-DD"}
+  ],
+  "scores": {"hit": 0, "partial": 0, "miss": 0}
+}

@@ -1,0 +1,19 @@
+# Example watchlist. Copy to config/private_watchlist.yaml (git-ignored) and edit.
+# t212_ticker must be the exact Trading 212 instrument ticker; verify name + ISIN in the broker's
+# instrument list, because tickers often differ from the stock symbol.
+# Only USD-listed stocks/ETFs can be traded by the demo executor; EUR-listed entries are verdict-only.
+version: 1
+sleeves: [demo]
+
+core:
+  - {symbol: WORLD_ETF, t212_ticker: ALLWd_EQ, name: Xtrackers FTSE All-World (Acc), currency: EUR, role: core_world}
+
+tier1:
+  - {symbol: NVDA, t212_ticker: NVDA_US_EQ, currency: USD, theme: ai_semis}
+  - {symbol: TSM,  t212_ticker: TSM_US_EQ,  currency: USD, theme: ai_semis}
+  - {symbol: MSFT, t212_ticker: MSFT_US_EQ, currency: USD, theme: platform}
+  - {symbol: DIS,  t212_ticker: DIS_US_EQ,  currency: USD, theme: media}
+
+tier1b:
+  - {symbol: AAPL, t212_ticker: AAPL_US_EQ, currency: USD, theme: platform}
+  - {symbol: AMZN, t212_ticker: AMZN_US_EQ, currency: USD, theme: platform, max_eur: 30}

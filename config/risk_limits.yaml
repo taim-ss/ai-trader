@@ -1,0 +1,12 @@
+# Hard risk limits. Read by src/ai_trader/risk.py. The model output cannot override these.
+# Defaults are the public-engine values; the private instance overrides via its own config.
+
+max_position_weight: 0.15        # max share of portfolio value in one name
+max_daily_loss_eur: 10.0         # halts trading for the rest of the day
+max_drawdown_kill_switch: 0.20   # halts all trading until a human resets it
+max_order_eur: 50.0              # hard cap per order (adjust for account size)
+allow_leverage: false
+allow_shorting: false
+allow_options: false
+loss_cooldown_trades: 3          # consecutive losing trades before cooldown
+cooldown_hours: 24

@@ -1,0 +1,16 @@
+# Example live-sleeve gate. Copy to config/private_live.yaml (git-ignored).
+# Nothing here places an order: ai_signal.live_gate_blockers() only reports why trading is NOT allowed,
+# and it always reports a blocker while no live adapter exists. Live trading is not implemented.
+enabled: false
+sleeve_eur: 200.0
+not_before: 2027-01-01
+mode: live-with-approval        # a human confirms every order; live-auto is never permitted
+max_orders_per_run: 1
+credentials_env: [TRADING212_LIVE_API_KEY, TRADING212_LIVE_API_SECRET]   # names only, never values
+checklist_required_true:
+  deposit_confirmed_in_account: false
+  daily_loss_and_drawdown_latch_implemented: false
+  cooldown_and_order_reconciliation_implemented: false
+  current_quote_cash_pending_order_checks_implemented: false
+  live_adapter_implemented_and_tested: false
+  explicit_written_approval: false
