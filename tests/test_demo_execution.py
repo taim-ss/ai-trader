@@ -297,6 +297,18 @@ def test_realised_sell_losses_trigger_cooldown(tmp_path: Path) -> None:
     assert broker.sent == []
 
 
+def test_negative_sold_quantity_in_history_is_accepted_and_zero_is_not(tmp_path: Path) -> None:
+    broker = FakeBroker()
+    broker.history.append({"order": {"id": "1", "side": "SELL"}, "fill": {
+        "id": "1", "quantity": -0.5441, "price": 37.52, "filledAt": (NOW - timedelta(days=1)).isoformat(),
+        "walletImpact": {"currency": "EUR", "realisedProfitLoss": 0.06}}})
+    ok = run(broker, tmp_path / "a", execute=False)
+    assert ok["status"] == "dry-run" and ok["violations"] == []
+    broker.history[0]["fill"]["quantity"] = 0
+    bad = run(broker, tmp_path / "b", execute=False)
+    assert bad["status"] == "blocked" and "nonzero" in " ".join(bad["violations"])
+
+
 @pytest.mark.parametrize("mutation", ["live", "lock", "journal", "unknown_transaction", "bad_plan", "stale"])
 def test_more_fail_closed_paths(tmp_path: Path, mutation: str) -> None:
     broker = FakeBroker()

@@ -132,7 +132,9 @@ def _risk_events(history: list[dict[str, Any]], transactions: list[dict[str, Any
         impact = fill["walletImpact"]
         if impact["currency"] != "EUR":
             raise ExecutionBlocked("realised P/L currency must be EUR")
-        _number(fill["quantity"], positive=True)
+        # Trading 212 reports sold quantities as negative numbers (seen on the live account 2026-10-30).
+        if _number(fill["quantity"]) == 0:
+            raise ExecutionBlocked("fill quantity must be nonzero")
         _number(fill["price"], positive=True)
         fills.append(RealizedFill(_identifier(fill["id"]), _timestamp(fill["filledAt"]),
                                   _number(impact["realisedProfitLoss"])))

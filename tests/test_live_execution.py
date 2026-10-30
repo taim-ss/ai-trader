@@ -140,13 +140,12 @@ def test_runner_open_gate_still_refuses_approval_without_a_terminal(tmp_path: Pa
     assert "person typing at a terminal" in capsys.readouterr().err
 
 
-def test_shipped_live_config_is_closed_so_the_runner_refuses_today(monkeypatch: pytest.MonkeyPatch,
-                                                                    capsys: pytest.CaptureFixture[str]) -> None:
+def test_shipped_example_live_config_is_closed_so_the_runner_refuses(monkeypatch: pytest.MonkeyPatch,
+                                                                     capsys: pytest.CaptureFixture[str]) -> None:
     module = runner()
-    if not (Path(module.ROOT) / "config" / "private_live.yaml").exists():
-        pytest.skip("no private live config in this checkout")
     forbid_broker(module, monkeypatch)
-    monkeypatch.setattr("sys.argv", ["live_trade.py", "--signal", "x.json"])
+    example = Path(module.ROOT) / "config" / "live.example.yaml"
+    monkeypatch.setattr("sys.argv", ["live_trade.py", "--signal", "x.json", "--live-config", str(example)])
     assert module.main() == 2
     assert "live gate is closed" in capsys.readouterr().err
 

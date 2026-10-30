@@ -127,7 +127,8 @@ def test_shipped_config_files_load_and_stay_locked(watchlist_name: str, live_nam
     if watchlist_name.startswith("private"):
         assert watch["MP"].t212_ticker == "FVAC_US_EQ" and watch["CBRS"].max_eur == 10.0
     config = load_live_config(live_path)
-    assert config["enabled"] is False and live_gate_blockers(config, date(2099, 1, 1))
+    if live_name == "live.example.yaml":  # the shipped example must always stay locked; the private file is the owner's call
+        assert config["enabled"] is False and live_gate_blockers(config, date(2099, 1, 1))
 
 
 def test_example_signal_matches_the_schema_and_example_watchlist() -> None:
