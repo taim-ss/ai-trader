@@ -45,16 +45,32 @@ Decision log (JSON lines) -> forecast calibration (Brier score) -> next run scor
 
 Everything above step 1 is the analyst; everything from step 1 down is plain, tested Python.
 
-## Honest results
+## Results
+
+### LLM analyst: live track record (in progress)
+
+The analyst's calls are executed by hand on a self-directed Revolut brokerage account (small EUR amounts,
+fractional shares) and scored against what actually happened. Recording started 19 Oct 2026.
+
+| Measure | Status |
+|---|---|
+| Scored forecasts (27 Oct 2026) | 3 scored: 1 hit, 2 partial, 0 miss. Too few to claim skill. |
+| Return vs S&P 500 | Not reported yet. It will be computed from Revolut statement exports (real fills and cash flows) over the same dates as the benchmark. |
+
+No performance claim is made until the statement-based figure exists. A few weeks on a small account says
+nothing about skill.
+
+### Appendix: deterministic ETF baseline (not the analyst)
 
 | Series (2013-01 to 2026-10, costs included) | CAGR | Max drawdown | Sharpe |
 |---|---|---|---|
 | Baseline ETF momentum strategy (cap 15%) | 3.92% | -14.74% | 0.549 |
 | SPY buy and hold | 14.66% | -33.72% | 0.904 |
 
-The backtest covers the **baseline momentum strategy only**, not the LLM analyst. The baseline does not beat
-the benchmark. It uses one historical path, a surviving ETF universe and assumed costs; see
-[reports/REPORT.md](reports/REPORT.md) for every limitation. No paper-trading fills are recorded yet.
+This backtest covers the **baseline momentum strategy only**, not the LLM analyst, so it is not the analyst's
+result. The baseline does not beat the benchmark. It uses one historical path, a surviving ETF universe and
+assumed costs; see [reports/REPORT.md](reports/REPORT.md) for every limitation. No paper-trading fills are
+recorded yet.
 
 ## Quick start
 
