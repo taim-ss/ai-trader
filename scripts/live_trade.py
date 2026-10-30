@@ -93,7 +93,7 @@ def run(args: argparse.Namespace) -> int:
                     return execute_live_plan(
                         broker, plan, live_blockers=blockers, limits=limits, state_dir=STATE_DIR, cycle_id=cycle,
                         price_limits=price_limits, fx_native_to_eur=quotes.fx_usd_to_eur, execute=execute,
-                        quote_times_utc=quote_times, approved=approved)
+                        quote_times_utc=quote_times, approved=approved, halt_file=ROOT / "HALT")
 
                 if args.approve:
                     result = run_with_approval(

@@ -260,11 +260,12 @@ def execute_demo_plan(
     now: datetime | None = None, execute: bool = False,
     quote_times_utc: Mapping[str, datetime] | None = None,
     approved: tuple[str, float, float] | None = None,
+    halt_file: Path | None = None,
 ) -> dict[str, Any]:
     """Demo environment only (virtual money). See `execute_plan` for the behaviour."""
     return execute_plan(broker, plan, environment="demo", live_blockers=None, limits=limits, state_dir=state_dir,
                         cycle_id=cycle_id, price_limits=price_limits, fx_native_to_eur=fx_native_to_eur, now=now,
-                        execute=execute, quote_times_utc=quote_times_utc, approved=approved)
+                        execute=execute, quote_times_utc=quote_times_utc, approved=approved, halt_file=halt_file)
 
 
 def execute_live_plan(
@@ -273,6 +274,7 @@ def execute_live_plan(
     now: datetime | None = None, execute: bool = False,
     quote_times_utc: Mapping[str, datetime] | None = None,
     approved: tuple[str, float, float] | None = None,
+    halt_file: Path | None = None,
 ) -> dict[str, Any]:
     """REAL MONEY. Refuses unless the caller proves the live gate is open (empty blocker list), and refuses to
     submit unless the exact order was human-approved. The gate is evaluated by the caller from config
@@ -280,7 +282,7 @@ def execute_live_plan(
     return execute_plan(broker, plan, environment="live", live_blockers=live_blockers, limits=limits,
                         state_dir=state_dir, cycle_id=cycle_id, price_limits=price_limits,
                         fx_native_to_eur=fx_native_to_eur, now=now, execute=execute,
-                        quote_times_utc=quote_times_utc, approved=approved)
+                        quote_times_utc=quote_times_utc, approved=approved, halt_file=halt_file)
 
 
 def execute_plan(
@@ -290,8 +292,12 @@ def execute_plan(
     now: datetime | None = None, execute: bool = False,
     quote_times_utc: Mapping[str, datetime] | None = None,
     approved: tuple[str, float, float] | None = None,
+    halt_file: Path | None = None,
 ) -> dict[str, Any]:
     """Refresh, reconcile and submit at most one DAY limit order to one exact environment.
+
+    A HALT file (when `halt_file` is given) stops the run at the start and again immediately before the POST;
+    only deleting the file resumes trading.
 
     Dry runs perform reads and persist the risk baseline/reconciliation, never POST.
     A crash after recording intent is deliberately unresolved until a human audits it.
@@ -302,6 +308,8 @@ def execute_plan(
     result: dict[str, Any] = {"status": "blocked", "violations": [], "submitted": [], "reconciled": []}
     stage = "validation"
     try:
+        if halt_file is not None and halt_file.exists():
+            raise ExecutionBlocked(f"HALT file present ({halt_file.name}); delete it to resume trading")
         expected_url = {"demo": TRADING212_DEMO_URL, "live": TRADING212_LIVE_URL}.get(environment)
         if expected_url is None or broker.base_url != expected_url:
             raise ExecutionBlocked("executor only accepts the exact demo environment" if environment == "demo"
@@ -373,6 +381,8 @@ def execute_plan(
                 result["planned"] = {"ticker": selected.api_ticker, "quantity": selected.quantity,
                                      "limit_price": price, "time_validity": "DAY"}
                 return result
+            if halt_file is not None and halt_file.exists():  # checked again right before the POST
+                raise ExecutionBlocked(f"HALT file present ({halt_file.name}); delete it to resume trading")
             send_at = now or datetime.now(UTC)
             ny = send_at.astimezone(ZoneInfo("America/New_York"))
             regular = ny.weekday() < 5 and time(9, 30) <= ny.time().replace(tzinfo=None) < time(16)

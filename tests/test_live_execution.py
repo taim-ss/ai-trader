@@ -149,3 +149,40 @@ def test_shipped_live_config_is_closed_so_the_runner_refuses_today(monkeypatch: 
     monkeypatch.setattr("sys.argv", ["live_trade.py", "--signal", "x.json"])
     assert module.main() == 2
     assert "live gate is closed" in capsys.readouterr().err
+
+
+class HaltDuringRunBroker(FakeBroker):
+    """Creates the HALT file while the run is still reading the account, i.e. after the first check."""
+
+    def __init__(self, halt: Path) -> None:
+        super().__init__()
+        self.halt = halt
+
+    def account_summary(self) -> dict[str, Any]:
+        self.halt.write_text("stop\n", encoding="utf-8")
+        return super().account_summary()
+
+
+def test_halt_file_blocks_dry_runs_and_orders_until_deleted(tmp_path: Path) -> None:
+    halt = tmp_path / "HALT"
+    halt.write_text("stop\n", encoding="utf-8")
+    for environment_broker, runner_fn in ((FakeBroker(), None), (live_broker(), None)):
+        blocked = (execute_demo_plan(environment_broker, plan(), limits=LIMITS, state_dir=tmp_path / "s", cycle_id="c",
+                                     price_limits={"AAA_US_EQ": 100.0}, fx_native_to_eur=1.0, now=NOW, execute=True,
+                                     quote_times_utc={"AAA_US_EQ": NOW, "EURUSD=X": NOW}, halt_file=halt)
+                   if runner_fn is None and environment_broker.base_url == TRADING212_DEMO_URL
+                   else go(environment_broker, tmp_path / "s", blockers=OPEN, execute=True, approved=APPROVED,
+                           halt_file=halt))
+        assert blocked["status"] == "blocked" and "HALT file present" in blocked["violations"][0]
+        assert environment_broker.sent == []
+    halt.unlink()
+    broker = live_broker()
+    assert go(broker, tmp_path / "t", blockers=OPEN, execute=True, approved=APPROVED, halt_file=halt)["status"] == "submitted"
+
+
+def test_halt_created_mid_run_is_caught_right_before_the_post(tmp_path: Path) -> None:
+    halt = tmp_path / "HALT"
+    broker = HaltDuringRunBroker(halt)
+    broker.base_url = TRADING212_LIVE_URL
+    result = go(broker, tmp_path / "s", blockers=OPEN, execute=True, approved=APPROVED, halt_file=halt)
+    assert result["status"] == "blocked" and "HALT file present" in result["violations"][0] and broker.sent == []
