@@ -21,12 +21,13 @@ import truststore
 
 from ai_trader.ai_demo import load_demo_signal, signal_cycle_id, sleeve_holdings, tradable_usd_map
 from ai_trader.ai_signal import load_watchlist
-from ai_trader.approval import ApprovedOrder, run_with_approval
+from ai_trader.approval import ApprovedOrder, run_with_approval, run_with_decider
 from ai_trader.decision_log import log_decision
 from ai_trader.demo_execution import execute_demo_plan
 from ai_trader.demo_market import DemoQuotes, load_demo_market, load_demo_quotes
 from ai_trader.execution_state import demo_run_lock
 from ai_trader.paper_adapter import Trading212Paper, credentials_from_env
+from ai_trader.phone_approval import PhoneApprover, load_phone_config
 from ai_trader.rebalance import plan_rebalance, resolve_api_tickers
 from ai_trader.risk import load_limits, validate_targets
 from ai_trader.strategy import StrategyConfig, target_weights
@@ -188,6 +189,15 @@ def run_signal(args: argparse.Namespace) -> int:
                         lambda: attempt(False), lambda approved: attempt(True, approved), input,
                         symbols={order.api_ticker: order.symbol for order in plan.orders},
                         fx_native_to_eur=quotes.fx_usd_to_eur)
+                elif args.phone:  # a human taps Approve on the phone; the bot only waits for the signed tap
+                    phone = load_phone_config(ROOT / "config" / "private_notify.yaml")
+                    with httpx.Client() as http_client:
+                        approver = PhoneApprover(phone, http_client)
+                        result = run_with_decider(
+                            lambda: attempt(False), lambda approved: attempt(True, approved),
+                            lambda text, order: approver.request(text, order, title="Approve DEMO order?"),
+                            symbols={order.api_ticker: order.symbol for order in plan.orders},
+                            fx_native_to_eur=quotes.fx_usd_to_eur)
                 else:
                     result = attempt(args.execute)
                 result["outside_sleeve_tickers"] = outside
@@ -196,7 +206,7 @@ def run_signal(args: argparse.Namespace) -> int:
                                          "an expired or cancelled order is not retried until the signal changes")
             result.update(environment="demo", source="ai-signal", signal_date=signal.as_of.isoformat(),
                           virtual_budget_eur=args.budget_eur, targets=signal.targets, reasons=signal.reasons)
-            armed = args.execute or (args.approve and result.get("status") != "cancelled")
+            armed = args.execute or ((args.approve or args.phone) and result.get("status") != "cancelled")
             action = ("blocked" if result["violations"] else "executed" if result["submitted"]
                       else "cancelled" if result.get("status") == "cancelled"
                       else "dry-run" if not armed else "hold")
@@ -236,14 +246,16 @@ def main() -> int:
     parser.add_argument("--execute", action="store_true", help="submit at most one demo DAY limit order")
     parser.add_argument("--approve", action="store_true",
                         help="with --signal: show the exact order and send it only after you type yes (needs a terminal)")
+    parser.add_argument("--phone", action="store_true",
+                        help="with --signal: send the exact order to your phone and wait for a one-tap Approve")
     parser.add_argument("--demo-only", action="store_true", help="acknowledge virtual-money execution")
     parser.add_argument("--budget-eur", type=float, default=200.0, help="virtual deployment budget (default EUR 200)")
     args = parser.parse_args()
-    if (args.execute or args.approve) and not args.demo_only:
+    if (args.execute or args.approve or args.phone) and not args.demo_only:
         print("blocked: persistent daily-loss and order controls require explicit --demo-only for submission", file=sys.stderr)
         return 2
-    if args.approve and (args.execute or not args.signal):
-        print("blocked: --approve works only with --signal and cannot be combined with --execute", file=sys.stderr)
+    if (args.approve or args.phone) and (args.execute or not args.signal or (args.approve and args.phone)):
+        print("blocked: --approve/--phone work only with --signal, one at a time, and not with --execute", file=sys.stderr)
         return 2
     if args.approve and not sys.stdin.isatty():
         print("blocked: approval needs a person typing at a terminal; scripts and agents cannot answer for you", file=sys.stderr)

@@ -20,12 +20,13 @@ import truststore
 
 from ai_trader.ai_demo import load_live_signal, signal_cycle_id, sleeve_holdings, tradable_usd_map
 from ai_trader.ai_signal import live_gate_blockers, load_live_config, load_watchlist
-from ai_trader.approval import LIVE_VENUE, ApprovedOrder, run_with_approval
+from ai_trader.approval import LIVE_VENUE, ApprovedOrder, run_with_approval, run_with_decider
 from ai_trader.decision_log import log_decision
 from ai_trader.demo_execution import execute_live_plan
 from ai_trader.demo_market import DemoQuotes, load_demo_quotes
 from ai_trader.execution_state import demo_run_lock
 from ai_trader.paper_adapter import Trading212Live, credentials_from_env
+from ai_trader.phone_approval import PhoneApprover, load_phone_config
 from ai_trader.rebalance import plan_rebalance
 from ai_trader.risk import load_limits
 
@@ -46,6 +47,8 @@ def run(args: argparse.Namespace) -> int:
     blockers = live_gate_blockers(config, datetime.now(UTC).date())
     if blockers:  # nothing is read from or sent to the broker while the gate is closed
         return blocked("live gate is closed", blockers=blockers)
+    if args.approve and args.phone:
+        return blocked("choose one approval method: --approve (typed) or --phone (one tap)")
     if args.approve and not sys.stdin.isatty():
         return blocked("approval needs a person typing at a terminal; scripts and agents cannot answer for you")
     sleeve_eur = float(config["sleeve_eur"])
@@ -100,6 +103,15 @@ def run(args: argparse.Namespace) -> int:
                         lambda: attempt(False), lambda approved: attempt(True, approved), input,
                         symbols={order.api_ticker: order.symbol for order in plan.orders},
                         fx_native_to_eur=quotes.fx_usd_to_eur, confirm_phrase=CONFIRM_PHRASE, venue=LIVE_VENUE)
+                elif args.phone:  # a human taps Approve on the phone; the bot only waits for the signed tap
+                    phone = load_phone_config(ROOT / "config" / "private_notify.yaml")
+                    with httpx.Client() as http_client:
+                        approver = PhoneApprover(phone, http_client)
+                        result = run_with_decider(
+                            lambda: attempt(False), lambda approved: attempt(True, approved),
+                            lambda text, order: approver.request(text, order, title="Approve LIVE order?"),
+                            symbols={order.api_ticker: order.symbol for order in plan.orders},
+                            fx_native_to_eur=quotes.fx_usd_to_eur, venue=LIVE_VENUE)
                 else:
                     result = attempt(False)
                 result["outside_sleeve_tickers"] = outside
@@ -122,6 +134,8 @@ def main() -> int:
     parser.add_argument("--watchlist", default=str(ROOT / "config" / "private_watchlist.yaml"))
     parser.add_argument("--approve", action="store_true",
                         help='show the exact order and send ONE only after you type "yes live" (needs a terminal)')
+    parser.add_argument("--phone", action="store_true",
+                        help="send the exact order to your phone (ntfy) and wait for a one-tap Approve; no terminal needed")
     parser.add_argument("--budget-eur", type=float, default=None, help="deploy at most this much (default: sleeve_eur)")
     args = parser.parse_args()
     try:

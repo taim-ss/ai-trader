@@ -1,4 +1,4 @@
-param([switch]$Execute, [switch]$Approve, [double]$BudgetEur = 200, [string]$Signal = '')
+param([switch]$Execute, [switch]$Approve, [switch]$Phone, [double]$BudgetEur = 200, [string]$Signal = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $pythonPath = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
@@ -15,6 +15,7 @@ $runnerArguments = @((Join-Path $PSScriptRoot 'paper_rebalance.py'), '--budget-e
 if ($Signal) { $runnerArguments += @('--signal', (Resolve-Path -LiteralPath $Signal).Path) }
 if ($Execute) { $runnerArguments += @('--execute', '--demo-only') }
 if ($Approve) { $runnerArguments += @('--approve', '--demo-only') }
+if ($Phone) { $runnerArguments += @('--phone', '--demo-only') }
 Push-Location -LiteralPath $projectRoot
 try { & $pythonPath @runnerArguments; $runnerExitCode = $LASTEXITCODE }
 finally { Pop-Location }
