@@ -23,16 +23,30 @@ def _reject_constant(name: str) -> Any:
     raise ValueError(f"non-finite JSON constant {name} is not allowed")
 
 
-def load_demo_signal(path: Path, watchlist: Mapping[str, WatchEntry], limits: RiskLimits, *,
-                     today: date, sleeve_eur: float) -> AiSignal:
-    """Read and validate a signal file for the demo sleeve. Live or live-gate signals are refused."""
+def _read_signal(path: Path, watchlist: Mapping[str, WatchEntry], limits: RiskLimits, *,
+                 today: date, sleeve_eur: float) -> AiSignal:
     # utf-8-sig: Windows PowerShell 5.1 writes a BOM; tolerate it so scheduled writers do not break runs.
     raw = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=_reject_constant)
     if not isinstance(raw, dict):
         raise ValueError("signal file must contain a JSON object")
-    signal = parse_signal(raw, watchlist, limits, today=today, sleeve_eur=sleeve_eur)
+    return parse_signal(raw, watchlist, limits, today=today, sleeve_eur=sleeve_eur)
+
+
+def load_demo_signal(path: Path, watchlist: Mapping[str, WatchEntry], limits: RiskLimits, *,
+                     today: date, sleeve_eur: float) -> AiSignal:
+    """Read and validate a signal file for the demo sleeve. Live or live-gate signals are refused."""
+    signal = _read_signal(path, watchlist, limits, today=today, sleeve_eur=sleeve_eur)
     if signal.sleeve != "demo" or signal.run == "live-gate":
         raise ValueError("the demo runner only accepts demo-sleeve signals")
+    return signal
+
+
+def load_live_signal(path: Path, watchlist: Mapping[str, WatchEntry], limits: RiskLimits, *,
+                     today: date, sleeve_eur: float) -> AiSignal:
+    """Read and validate a signal file for the live sleeve. Demo-sleeve signals are refused."""
+    signal = _read_signal(path, watchlist, limits, today=today, sleeve_eur=sleeve_eur)
+    if signal.sleeve != "live":
+        raise ValueError("the live runner only accepts live-sleeve signals")
     return signal
 
 

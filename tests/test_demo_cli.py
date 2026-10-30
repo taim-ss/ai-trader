@@ -64,3 +64,29 @@ def test_full_cli_submits_demo_limit_once_and_blocks_retry_while_pending(tmp_pat
     assert len(submitted) == 1
     assert module.main() == 2
     assert len(submitted) == 1
+
+
+def _runner_module():
+    source = Path(__file__).resolve().parents[1] / "scripts" / "paper_rebalance.py"
+    spec = importlib.util.spec_from_file_location("runner_approve_test", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_approve_refuses_without_a_person_at_a_terminal(monkeypatch, capsys):
+    module = _runner_module()
+    monkeypatch.setattr("sys.argv", ["paper_rebalance.py", "--signal", "x.json", "--approve", "--demo-only"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    assert module.main() == 2
+    assert "person typing at a terminal" in capsys.readouterr().err
+
+
+def test_approve_needs_demo_only_a_signal_and_excludes_execute(monkeypatch, capsys):
+    module = _runner_module()
+    for argv in (["--signal", "x.json", "--approve"],
+                 ["--approve", "--demo-only"],
+                 ["--signal", "x.json", "--approve", "--execute", "--demo-only"]):
+        monkeypatch.setattr("sys.argv", ["paper_rebalance.py", *argv])
+        assert module.main() == 2
+    assert "blocked" in capsys.readouterr().err

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, time, timedelta
 from math import isfinite
 from pathlib import Path
@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from ai_trader.broker import TRADING212_DEMO_URL
+from ai_trader.broker import TRADING212_DEMO_URL, TRADING212_LIVE_URL
 from ai_trader.execution_state import CashFlow, RealizedFill, RiskLedger, demo_run_lock
 from ai_trader.rebalance import PlannedOrder, RebalancePlan
 from ai_trader.risk import RiskLimits, validate_order
@@ -259,8 +259,39 @@ def execute_demo_plan(
     cycle_id: str, price_limits: Mapping[str, float], fx_native_to_eur: float,
     now: datetime | None = None, execute: bool = False,
     quote_times_utc: Mapping[str, datetime] | None = None,
+    approved: tuple[str, float, float] | None = None,
 ) -> dict[str, Any]:
-    """Refresh, reconcile and submit at most one DAY limit order to demo only.
+    """Demo environment only (virtual money). See `execute_plan` for the behaviour."""
+    return execute_plan(broker, plan, environment="demo", live_blockers=None, limits=limits, state_dir=state_dir,
+                        cycle_id=cycle_id, price_limits=price_limits, fx_native_to_eur=fx_native_to_eur, now=now,
+                        execute=execute, quote_times_utc=quote_times_utc, approved=approved)
+
+
+def execute_live_plan(
+    broker: DemoBroker, plan: RebalancePlan, *, live_blockers: Sequence[str], limits: RiskLimits, state_dir: Path,
+    cycle_id: str, price_limits: Mapping[str, float], fx_native_to_eur: float,
+    now: datetime | None = None, execute: bool = False,
+    quote_times_utc: Mapping[str, datetime] | None = None,
+    approved: tuple[str, float, float] | None = None,
+) -> dict[str, Any]:
+    """REAL MONEY. Refuses unless the caller proves the live gate is open (empty blocker list), and refuses to
+    submit unless the exact order was human-approved. The gate is evaluated by the caller from config
+    that only the owner can change; this function re-checks the evidence it is handed."""
+    return execute_plan(broker, plan, environment="live", live_blockers=live_blockers, limits=limits,
+                        state_dir=state_dir, cycle_id=cycle_id, price_limits=price_limits,
+                        fx_native_to_eur=fx_native_to_eur, now=now, execute=execute,
+                        quote_times_utc=quote_times_utc, approved=approved)
+
+
+def execute_plan(
+    broker: DemoBroker, plan: RebalancePlan, *, environment: str, live_blockers: Sequence[str] | None,
+    limits: RiskLimits, state_dir: Path,
+    cycle_id: str, price_limits: Mapping[str, float], fx_native_to_eur: float,
+    now: datetime | None = None, execute: bool = False,
+    quote_times_utc: Mapping[str, datetime] | None = None,
+    approved: tuple[str, float, float] | None = None,
+) -> dict[str, Any]:
+    """Refresh, reconcile and submit at most one DAY limit order to one exact environment.
 
     Dry runs perform reads and persist the risk baseline/reconciliation, never POST.
     A crash after recording intent is deliberately unresolved until a human audits it.
@@ -271,8 +302,16 @@ def execute_demo_plan(
     result: dict[str, Any] = {"status": "blocked", "violations": [], "submitted": [], "reconciled": []}
     stage = "validation"
     try:
-        if broker.base_url != TRADING212_DEMO_URL:
-            raise ExecutionBlocked("executor only accepts the exact demo environment")
+        expected_url = {"demo": TRADING212_DEMO_URL, "live": TRADING212_LIVE_URL}.get(environment)
+        if expected_url is None or broker.base_url != expected_url:
+            raise ExecutionBlocked("executor only accepts the exact demo environment" if environment == "demo"
+                                   else "executor environment does not match the broker")
+        if environment == "live":
+            if live_blockers is None or len(live_blockers) > 0:
+                raise ExecutionBlocked("live gate is closed: " + ("; ".join(live_blockers) if live_blockers
+                                                                  else "no gate evidence supplied"))
+            if execute and approved is None:
+                raise ExecutionBlocked("a live order must be an order a human approved")
         if type(execute) is not bool or not isinstance(cycle_id, str) or not cycle_id.strip() or len(cycle_id) > 128:
             raise ExecutionBlocked("invalid execution flag or cycle identifier")
         at = now or datetime.now(UTC)
@@ -327,6 +366,8 @@ def execute_demo_plan(
                                                           price, fx_native_to_eur, limits))
             if result["violations"]:
                 return result
+            if approved is not None and (selected.api_ticker, selected.quantity, price) != approved:
+                raise ExecutionBlocked("selected order differs from the order the human approved")
             if not execute:
                 result["status"] = "dry-run"
                 result["planned"] = {"ticker": selected.api_ticker, "quantity": selected.quantity,

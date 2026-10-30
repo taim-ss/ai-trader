@@ -21,6 +21,7 @@ import truststore
 
 from ai_trader.ai_demo import load_demo_signal, signal_cycle_id, sleeve_holdings, tradable_usd_map
 from ai_trader.ai_signal import load_watchlist
+from ai_trader.approval import ApprovedOrder, run_with_approval
 from ai_trader.decision_log import log_decision
 from ai_trader.demo_execution import execute_demo_plan
 from ai_trader.demo_market import DemoQuotes, load_demo_market, load_demo_quotes
@@ -173,22 +174,36 @@ def run_signal(args: argparse.Namespace) -> int:
                                       holdings, args.budget_eur, mapping, limits)
                 price_limits = {order.api_ticker: round(quotes.prices_usd[order.symbol]
                                 * (1.01 if order.quantity > 0 else .99), 2) for order in plan.orders}
-                result = execute_demo_plan(
-                    broker, plan, limits=limits, state_dir=STATE_DIR, cycle_id=cycle,
-                    price_limits=price_limits, fx_native_to_eur=quotes.fx_usd_to_eur, execute=args.execute,
-                    quote_times_utc={**{mapping[symbol]: quotes.quote_times_utc[symbol] for symbol in symbols},
-                                     **({"EURUSD=X": quotes.quote_times_utc["EURUSD=X"]} if symbols else {})})
+                quote_times = {**{mapping[symbol]: quotes.quote_times_utc[symbol] for symbol in symbols},
+                               **({"EURUSD=X": quotes.quote_times_utc["EURUSD=X"]} if symbols else {})}
+
+                def attempt(execute: bool, approved: ApprovedOrder | None = None) -> dict[str, Any]:
+                    return execute_demo_plan(
+                        broker, plan, limits=limits, state_dir=STATE_DIR, cycle_id=cycle,
+                        price_limits=price_limits, fx_native_to_eur=quotes.fx_usd_to_eur, execute=execute,
+                        quote_times_utc=quote_times, approved=approved)
+
+                if args.approve:  # a human types "yes" for the exact order shown; nothing else can send it
+                    result = run_with_approval(
+                        lambda: attempt(False), lambda approved: attempt(True, approved), input,
+                        symbols={order.api_ticker: order.symbol for order in plan.orders},
+                        fx_native_to_eur=quotes.fx_usd_to_eur)
+                else:
+                    result = attempt(args.execute)
                 result["outside_sleeve_tickers"] = outside
                 if result["status"] == "completed" and plan.orders:
                     result["warning"] = ("every planned ticker already reached a terminal order state in this cycle; "
                                          "an expired or cancelled order is not retried until the signal changes")
             result.update(environment="demo", source="ai-signal", signal_date=signal.as_of.isoformat(),
                           virtual_budget_eur=args.budget_eur, targets=signal.targets, reasons=signal.reasons)
-            action = "blocked" if result["violations"] else "executed" if result["submitted"] else "dry-run" if not args.execute else "hold"
+            armed = args.execute or (args.approve and result.get("status") != "cancelled")
+            action = ("blocked" if result["violations"] else "executed" if result["submitted"]
+                      else "cancelled" if result.get("status") == "cancelled"
+                      else "dry-run" if not armed else "hold")
             log_decision(LOG_PATH, action=action, mode="paper", targets=signal.targets,
                          violations=result["violations"], rationale=json.dumps(result, allow_nan=False, sort_keys=True))
             print(json.dumps(result, allow_nan=False, sort_keys=True))  # before anything else can fail
-            if args.execute and not result["violations"]:
+            if armed and not result["violations"]:
                 try:
                     _log_forecasts_once(signal, cycle)
                 except OSError:
@@ -219,11 +234,19 @@ def main() -> int:
     parser.add_argument("--watchlist", default=str(ROOT / "config" / "private_watchlist.yaml"),
                         help="private watchlist used with --signal")
     parser.add_argument("--execute", action="store_true", help="submit at most one demo DAY limit order")
+    parser.add_argument("--approve", action="store_true",
+                        help="with --signal: show the exact order and send it only after you type yes (needs a terminal)")
     parser.add_argument("--demo-only", action="store_true", help="acknowledge virtual-money execution")
     parser.add_argument("--budget-eur", type=float, default=200.0, help="virtual deployment budget (default EUR 200)")
     args = parser.parse_args()
-    if args.execute and not args.demo_only:
+    if (args.execute or args.approve) and not args.demo_only:
         print("blocked: persistent daily-loss and order controls require explicit --demo-only for submission", file=sys.stderr)
+        return 2
+    if args.approve and (args.execute or not args.signal):
+        print("blocked: --approve works only with --signal and cannot be combined with --execute", file=sys.stderr)
+        return 2
+    if args.approve and not sys.stdin.isatty():
+        print("blocked: approval needs a person typing at a terminal; scripts and agents cannot answer for you", file=sys.stderr)
         return 2
     if not isfinite(args.budget_eur) or args.budget_eur <= 0:
         parser.error("budget must be finite and positive")

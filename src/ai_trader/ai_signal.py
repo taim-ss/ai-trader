@@ -18,7 +18,9 @@ import yaml
 from ai_trader.risk import RiskLimits, validate_targets
 
 # Flip only after a live adapter with persistent loss/drawdown latches and reconciliation exists and is tested.
-LIVE_EXECUTION_IMPLEMENTED = False
+# True since 2026-10-29: the human-approved live path exists (execute_live_plan, scripts/live_trade.py).
+# It changes nothing by itself: the gate still needs enabled + every checklist item set by the owner.
+LIVE_EXECUTION_IMPLEMENTED = True
 
 WATCHLIST_SECTIONS = ("core", "tier1", "tier1b", "tier2", "tier3")
 RUNS = frozenset({"routine", "event", "live-gate"})

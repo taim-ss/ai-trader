@@ -93,8 +93,16 @@ def live_config(**changes: Any) -> dict[str, Any]:
     return base
 
 
-def test_gate_is_closed_while_adapter_missing() -> None:
+def test_gate_is_closed_while_adapter_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ai_trader.ai_signal.LIVE_EXECUTION_IMPLEMENTED", False)
     assert any("no live order adapter" in b for b in live_gate_blockers(live_config(), TODAY))
+
+
+def test_a_fully_owner_enabled_config_is_the_only_way_to_open_the_gate() -> None:
+    assert live_gate_blockers(live_config(), TODAY) == []
+    for change in ({"enabled": False}, {"mode": "live-auto"}, {"not_before": date(2099, 1, 1)},
+                   {"checklist_required_true": {"explicit_written_approval": False}}, {"sleeve_eur": 0}):
+        assert live_gate_blockers(live_config(**change), TODAY)
 
 
 def test_gate_blocks_early_disabled_unchecked_and_auto() -> None:

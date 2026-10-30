@@ -16,20 +16,23 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from ai_trader.broker import TRADING212_DEMO_URL
+from ai_trader.broker import TRADING212_DEMO_URL, TRADING212_LIVE_URL
 
 KEY_ENV = "TRADING212_DEMO_API_KEY"
 SECRET_ENV = "TRADING212_DEMO_API_SECRET"
+LIVE_KEY_ENV = "TRADING212_LIVE_API_KEY"
+LIVE_SECRET_ENV = "TRADING212_LIVE_API_SECRET"
 
 
-def credentials_from_env(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
-    """Read demo credentials from the environment. Raises a clear error if missing."""
+def credentials_from_env(environ: Mapping[str, str] | None = None, *, live: bool = False) -> tuple[str, str]:
+    """Read demo (or, with live=True, live) credentials from the environment. Fails clearly if missing."""
     env = os.environ if environ is None else environ
-    key = env.get(KEY_ENV, "").strip()
-    secret = env.get(SECRET_ENV, "").strip()
+    key_name, secret_name = (LIVE_KEY_ENV, LIVE_SECRET_ENV) if live else (KEY_ENV, SECRET_ENV)
+    key = env.get(key_name, "").strip()
+    secret = env.get(secret_name, "").strip()
     if not key or not secret:
         raise RuntimeError(
-            f"set {KEY_ENV} and {SECRET_ENV} as environment variables (demo keys only)"
+            f"set {key_name} and {secret_name} as environment variables ({'live' if live else 'demo'} keys only)"
         )
     return key, secret
 
@@ -37,15 +40,19 @@ def credentials_from_env(environ: Mapping[str, str] | None = None) -> tuple[str,
 class Trading212Paper:
     """Paper-only client. Live URLs are rejected at construction."""
 
+    ALLOWED_URL = TRADING212_DEMO_URL
+    REFUSAL = "paper adapter only talks to the Trading 212 demo environment"
+
     def __init__(
         self,
         api_key: str,
         api_secret: str,
-        base_url: str = TRADING212_DEMO_URL,
+        base_url: str | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        if base_url != TRADING212_DEMO_URL:
-            raise ValueError("paper adapter only talks to the Trading 212 demo environment")
+        base_url = self.ALLOWED_URL if base_url is None else base_url
+        if base_url != self.ALLOWED_URL:
+            raise ValueError(self.REFUSAL)
         token = base64.b64encode(f"{api_key}:{api_secret}".encode()).decode("ascii")
         self._client = httpx.Client(
             base_url=base_url,
@@ -60,8 +67,8 @@ class Trading212Paper:
 
     @property
     def base_url(self) -> str:
-        """Immutable environment identity for the execution engine's demo check."""
-        return TRADING212_DEMO_URL
+        """Immutable environment identity for the execution engine's environment check."""
+        return self.ALLOWED_URL
 
     def _pace(self, endpoint: str, seconds: float) -> None:
         if self._rate_enabled:
@@ -188,3 +195,16 @@ class Trading212Paper:
 
     def close(self) -> None:
         self._client.close()
+
+
+class Trading212Live(Trading212Paper):
+    """Live client for the human-approved path only. Same reads and DAY limit orders; demo URLs are rejected.
+
+    Market orders are disabled: a real-money order is always a limit order the human has seen.
+    """
+
+    ALLOWED_URL = TRADING212_LIVE_URL
+    REFUSAL = "live adapter only talks to the Trading 212 live environment"
+
+    def place_market_order(self, ticker: str, quantity: float) -> dict[str, Any]:
+        raise NotImplementedError("live market orders are not allowed; only approved DAY limit orders")
