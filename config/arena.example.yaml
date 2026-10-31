@@ -1,0 +1,20 @@
+# Forward-test arena config template. Copy to $ARENA_DIR/config.yaml (default ../trading-team/arena, outside the repo).
+# The pass criteria must be fixed BEFORE the first result exists; changes afterwards belong in a changelog with the reason.
+version: 1
+benchmark: SPY          # exposure-matched excess return is measured against this
+world: URTH
+horizons: [5, 20]       # trading sessions
+cost_bps: 50            # round trip: 25 bps per side
+max_weight: 0.15
+max_positions: 5
+criteria:
+  min_rounds: 12
+  horizon: 5
+  ci_level: 0.8
+  min_random_percentile: 0.6
+random:                 # luck distribution: random equal-weight portfolios from `stocks`
+  count: 500
+  picks: 3
+  weight: 0.15
+stocks: [AAPL, MSFT, NVDA, AMZN, GOOGL, META, AVGO, TSM, AMD, NFLX, DIS, ORCL]
+etfs: [SPY, QQQ, IWM, EFA, EEM, TLT, GLD, XLE, XLK, XLV, XLF, XLI, XLP, XLU]

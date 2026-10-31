@@ -1,76 +1,67 @@
 # AI Trader
 
-A risk-gated trading agent for a **broker demo account**. An LLM analyst proposes portfolio weights as a
-JSON signal; a deterministic risk engine must approve every order **before it is placed through the
-Trading 212 API**. The model never talks to the broker and cannot override a limit.
+[![ci](https://github.com/taim-ss/ai-trader/actions/workflows/ci.yml/badge.svg)](https://github.com/taim-ss/ai-trader/actions/workflows/ci.yml)
 
-> Educational project and self-directed research tool. **Not financial advice.** Demo account only:
-> there is no live-trading code in this repository. Results below are a historical backtest of a simple
-> baseline, not a track record.
+**An LLM analyst scans the market for entry setups and pushes the opportunity to your phone. A plain-code risk engine
+decides what is allowed to exist. Nothing reaches the broker until you tap Approve.**
 
-## Why it exists
+The model never talks to the broker and cannot override a limit. It proposes target weights as a JSON signal; deterministic
+code validates, sizes and gates every order; a human approves the exact order with one tap on a push notification; the
+executor sends one limit order to the [Trading 212 API](https://docs.trading212.com/api), journals it, and reconciles it
+on the next run. A forward-test arena scores the analyst against simple baselines on prices that did not exist when it
+committed, so "does the AI add anything?" gets an honest answer instead of a backtest that the model has already seen.
 
-LLMs are decent at digesting news, earnings dates and macro context, and bad at discipline. This project
-keeps the part that benefits from judgement (what to look at, why, with what probability) separate from the
-part that must be boring and strict (how much, how often, and whether an order is allowed to exist at all).
+> Educational, self-directed research tool. **Not financial advice.** No performance claim is made: see [Status](#status-and-honesty).
 
-## How an order happens
+## How it works
 
-```
-LLM analyst (prompt, web research)
-        |  writes JSON signal: weights, reasons, verdicts, scoreable forecasts
-        v
-1. Signal validation        ai_signal.parse_signal
-        |  schema, freshness (<= 3 days), watchlist-only symbols, 15% cap per name,
-        |  per-name EUR caps, <= 5 positions, no shorting or leverage,
-        |  a written reason for every non-zero weight. Rejected, never repaired.
-        v
-2. Instrument resolution    ai_demo.tradable_usd_map
-        |  exactly one USD-listed stock/ETF in the broker's instrument list, else refused
-        v
-3. Order planning           rebalance.plan_rebalance
-        |  target shares from fresh quotes, sells truncated toward zero,
-        |  per-order EUR cap: an oversized order is rejected, not resized
-        v
-4. Execution gates          demo_execution.execute_demo_plan
-        |  demo URL only; EUR account; available cash + 1% fee reserve; pending orders block;
-        |  daily-loss halt, drawdown kill switch, loss cooldown; quote freshness (15 min in
-        |  US hours); position cap vs account equity; durable order journal written BEFORE the
-        |  POST; denied/unknown orders block all runs until a human reviews; no automatic retries
-        v
-One DAY limit order (+/-1% of the quote) to the Trading 212 demo API, at most one per run
-        v
-Decision log (JSON lines) -> forecast calibration (Brier score) -> next run scores the last one
+```mermaid
+flowchart LR
+  A[Scheduled LLM analyst<br/>scans watchlist, rules, news] -->|JSON signal| B[Validation<br/>schema, caps, freshness]
+  B --> C[Risk engine + planner<br/>caps, cash, quotes, loss halt]
+  C -->|one exact order| D{Human approval}
+  D -->|tap Approve on phone<br/>or type confirmation| E[Executor<br/>durable journal, DAY limit order]
+  D -->|Reject / ignore / expire| X[Nothing sent]
+  E --> F[Reconcile + decision log<br/>calibration, arena scoreboard]
+  A -. forward test .-> G[Arena: analyst vs baselines vs random]
 ```
 
-Everything above step 1 is the analyst; everything from step 1 down is plain, tested Python.
+1. **Scan.** An analyst run (any agent runtime on a schedule) researches the watchlist, applies the written entry rules and
+   writes `data/ai_signals/<date>-<run>.json`. Unknown prices, unconfirmed earnings dates or conflicting sources mean *wait*.
+2. **Validate.** `parse_signal` accepts only watchlist symbols, finite weights within the position cap, a written reason for
+   every non-zero weight, at most five positions, and a fresh `as_of`. Invalid signals are rejected, never repaired.
+3. **Gate.** The executor refreshes the account, reconciles earlier orders, and refuses on pending orders, insufficient cash
+   (including a fee reserve), stale quotes, daily-loss halt, drawdown latch, loss cooldown, or a HALT file.
+4. **Approve.** The exact order (side, size, ticker, limit price, approximate EUR) is pushed to your phone via
+   [ntfy](https://ntfy.sh) with **Approve** and **Reject** buttons, or confirmed by a typed phrase in a terminal.
+   The approval token is an HMAC bound to the order id, ticker, quantity, limit price and an expiry, so it cannot be reused for
+   another order or after it expires. No tap means no order.
+5. **Send.** The order that is sent must equal the order that was shown. The intent is written to a journal *before* the POST,
+   there are no automatic retries, and an unknown outcome blocks later runs until a human reviews it.
+6. **Learn.** Every decision is logged; explicit binary forecasts are scored (Brier); the arena compares the analyst with baselines.
 
-## Results
+## What is in the box
 
-### LLM analyst: live track record (in progress)
+| Area | What it does | Where |
+|---|---|---|
+| Signal schema and validation | Strict JSON contract between the LLM and the code | `ai_signal.py`, `docs/analyst-prompt.md` |
+| Risk engine | Per-name cap, per-order cap, daily-loss halt, drawdown latch, loss cooldown, no leverage/shorting/options | `risk.py`, `execution_state.py`, `config/risk_limits.yaml` |
+| Executor | Durable order journal, reconciliation, freshness checks, idempotent cycles, HALT file, single DAY limit order per run | `demo_execution.py` |
+| One-tap phone approval | Signed Approve/Reject buttons over ntfy; polling only, no inbound server | `phone_approval.py`, `scripts/setup_phone.py` |
+| Typed approval | Exact order shown, confirmation phrase required, refuses without a real terminal | `approval.py` |
+| Trading 212 clients | Demo and live clients that each refuse the other's URL; live market orders disabled | `paper_adapter.py` |
+| Live gate | Live stays locked until the owner edits a git-ignored config and completes a checklist | `ai_signal.live_gate_blockers`, `config/live.example.yaml` |
+| Forward-test arena | Pre-registered pass criteria, exposure-matched excess return, bootstrap interval, random-portfolio luck benchmark | `arena.py`, `scripts/arena.py` |
+| Calibration | Brier scoring of explicit forecasts with verified outcomes | `calibration.py` |
+| Baseline backtest | Deterministic 12-1 momentum ETF rule with costs, for context only | `backtest.py`, `reports/` |
 
-The analyst's calls are executed by hand on a self-directed Revolut brokerage account (small EUR amounts,
-fractional shares) and scored against what actually happened. Recording started 19 Oct 2026.
+Every safety property above has tests. The suite runs in CI with `mypy --strict`.
 
-| Measure | Status |
-|---|---|
-| Scored forecasts (27 Oct 2026) | 3 scored: 1 hit, 2 partial, 0 miss. Too few to claim skill. |
-| Return vs S&P 500 | Not reported yet. It will be computed from Revolut statement exports (real fills and cash flows) over the same dates as the benchmark. |
+## Modes
 
-No performance claim is made until the statement-based figure exists. A few weeks on a small account says
-nothing about skill.
-
-### Appendix: deterministic ETF baseline (not the analyst)
-
-| Series (2013-01 to 2026-10, costs included) | CAGR | Max drawdown | Sharpe |
-|---|---|---|---|
-| Baseline ETF momentum strategy (cap 15%) | 3.92% | -14.74% | 0.549 |
-| SPY buy and hold | 14.66% | -33.72% | 0.904 |
-
-This backtest covers the **baseline momentum strategy only**, not the LLM analyst, so it is not the analyst's
-result. The baseline does not beat the benchmark. It uses one historical path, a surviving ETF universe and
-assumed costs; see [reports/REPORT.md](reports/REPORT.md) for every limitation. No paper-trading fills are
-recorded yet.
+- **demo** - Trading 212 practice account (virtual money). Plan, approve, send, reconcile; this path has been exercised end to end.
+- **live** - real money, same path, but it refuses unless the owner has switched the gate on in `config/private_live.yaml`, and
+  every order still needs approval. `live-auto` is deliberately impossible: the gate rejects any mode but `live-with-approval`.
 
 ## Quick start
 
@@ -80,33 +71,56 @@ pip install -e ".[dev]"
 pytest -q && mypy --strict src
 ```
 
-Demo credentials come from environment variables only (names in `.env.example`, values never in files):
-`TRADING212_DEMO_API_KEY`, `TRADING212_DEMO_API_SECRET`.
+Credentials come from environment variables only (names in `.env.example`; values never in files).
 
 ```bash
-cp config/watchlist.example.yaml config/private_watchlist.yaml     # git-ignored
-python scripts/paper_rebalance.py --signal examples/signal.example.json   # plan only, no order
+cp config/watchlist.example.yaml config/private_watchlist.yaml      # git-ignored
+python scripts/paper_rebalance.py --signal examples/signal.example.json    # plan only: prints the order, sends nothing
+python scripts/setup_phone.py --wait 240                                    # one-time: send a test tap to your phone
+python scripts/paper_rebalance.py --signal FILE --phone --demo-only        # push the order to your phone, send it only on Approve
+python scripts/arena.py board                                               # forward-test scoreboard (arena data lives outside the repo: ARENA_DIR, see config/arena.example.yaml)
 ```
 
-`--execute --demo-only` submits one demo order. The analyst prompt and signal schema are in
-[docs/analyst-prompt.md](docs/analyst-prompt.md); `examples/signal.example.json` is a template (set a
-current `as_of`). Risk limits live in `config/risk_limits.yaml`.
+Windows wrappers: `scripts/run_demo.ps1 -Signal FILE [-Phone|-Approve]`, `scripts/run_live.ps1 -Signal FILE [-Phone|-Approve]`.
+An empty file named `HALT` in the repo root stops every run at the start and again right before the order.
 
-## Status and limits
+## Scanning on a schedule
 
-- Demo account only. Live trading is **not implemented**; the live-sleeve gate
-  (`ai_signal.live_gate_blockers`) stays closed in code until a live adapter with persistent loss latches exists.
-- The demo executor trades USD-listed stocks and ETFs only.
-- Market data is Yahoo's unofficial chart endpoint: research use, not executable quotes.
-- The LLM analyst itself is not bundled; the repo contains the prompt, the schema and the safety layer.
-- 250+ automated tests; `mypy --strict` clean. Design details in [ARCHITECTURE.md](ARCHITECTURE.md).
+The analyst is a prompt-driven agent that runs *outside* this codebase, so you can use any agent runtime with a scheduler.
+[`docs/scanner-prompt.md`](docs/scanner-prompt.md) is a generic scheduled-scan prompt: stop checks, entry rules, one proposal per
+day, signal schema, and the exact command to hand the result to the approval flow. The code in `src/ai_trader` validates and
+gates whatever the analyst writes; it never sees the model's reasoning as instructions.
+
+## Status and honesty
+
+- Verified end to end on the demo account: a signal became one planned order, was sent, filled, and reconciled from the broker.
+- Verified: a signed approval tap from a phone reaches the bot, and forged, expired or other-order taps are ignored.
+- The live path is implemented and covered by tests with fake brokers; it is locked by default. Treat the first real order as the first real test.
+- **The forward-test arena has not collected enough rounds to say whether the analyst beats the baselines.** The pass criteria
+  were written before any result existed (`NO EVIDENCE YET` is the correct reading today).
+- The deterministic ETF baseline trails the S&P 500 (below). It is *not* the analyst and is shown for context only.
+
+| Series (2013-01 to 2026-10, costs included) | CAGR | Max drawdown | Sharpe |
+|---|---|---|---|
+| Baseline ETF momentum strategy (cap 15%) | 3.92% | -14.74% | 0.549 |
+| SPY buy and hold | 14.66% | -33.72% | 0.904 |
+
+One historical path, a surviving ETF universe and assumed costs; see [reports/REPORT.md](reports/REPORT.md) for every limitation.
+An LLM cannot be backtested honestly on past dates, because the model may already know how they ended, which is why the arena
+scores forward only.
+
+## Threat model in one paragraph
+
+Headlines and web pages are untrusted data and never an instruction channel. The LLM output is schema-validated and cannot create
+or enlarge an order beyond hard limits. The executor fails closed on stale data, errors, mismatches or duplicates. A leaked approval
+topic lets someone tap a proposal the bot already made, but not create or change one; keep the topics and the signing key private.
+Secrets live only in environment variables and git-ignored config.
 
 ## Legal note
 
-Self-directed tool for the author's own demo account. It does not give personalised advice to others and
-is not offered as a service. If you adapt it to manage money for anyone else, check the rules that apply
-in your jurisdiction (in Germany/EU, e.g. BaFin and MiFID II).
+Self-directed tool for the author's own accounts. It does not give personalised advice to others and is not offered as a service.
+If you adapt it to manage money for anyone else, check the rules that apply to you (in Germany/EU, e.g. BaFin and MiFID II).
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Design details: [ARCHITECTURE.md](ARCHITECTURE.md).

@@ -1,6 +1,7 @@
 # Example live-sleeve gate. Copy to config/private_live.yaml (git-ignored).
-# Nothing here places an order: ai_signal.live_gate_blockers() only reports why trading is NOT allowed,
-# and it always reports a blocker while no live adapter exists. Live trading is not implemented.
+# Nothing here places an order: ai_signal.live_gate_blockers() reports every reason live trading is NOT allowed.
+# The gate opens only when the owner sets enabled: true and every checklist item below to true in the private copy.
+# Even then each order needs a human approval (phone tap or typed phrase); live-auto is rejected.
 enabled: false
 sleeve_eur: 200.0
 not_before: 2027-01-01

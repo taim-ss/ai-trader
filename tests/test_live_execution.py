@@ -105,7 +105,7 @@ def runner() -> Any:
 
 
 def write_config(path: Path, **changes: Any) -> Path:
-    config = {"enabled": True, "sleeve_eur": 58.0, "not_before": "2026-10-30", "mode": "live-with-approval",
+    config = {"enabled": True, "sleeve_eur": 100.0, "not_before": "2026-10-30", "mode": "live-with-approval",
               "max_orders_per_run": 1, "checklist_required_true": {"explicit_written_approval": True}}
     config.update(changes)
     path.write_text(json.dumps(config), encoding="utf-8")  # JSON is valid YAML
