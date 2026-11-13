@@ -1,6 +1,11 @@
 # AI Trader
 
 [![ci](https://github.com/taim-ss/ai-trader/actions/workflows/ci.yml/badge.svg)](https://github.com/taim-ss/ai-trader/actions/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.12%2B-blue)
+![typing](https://img.shields.io/badge/mypy-strict-success)
+![license](https://img.shields.io/badge/license-MIT-lightgrey)
+
+![AI Trader architecture: LLM analyst, validation, risk engine, human approval, executor, forward-test arena](docs/assets/architecture.png)
 
 **An LLM analyst scans the market for entry setups and pushes the opportunity to your phone. A plain-code risk engine
 decides what is allowed to exist. Nothing reaches the broker until you tap Approve.**
@@ -12,6 +17,20 @@ on the next run. A forward-test arena scores the analyst against simple baseline
 committed, so "does the AI add anything?" gets an honest answer instead of a backtest that the model has already seen.
 
 > Educational, self-directed research tool. **Not financial advice.** No performance claim is made: see [Status](#status-and-honesty).
+
+## At a glance
+
+| | |
+|---|---|
+| Idea | Treat the LLM as an untrusted proposer: strict schema, deterministic risk gates, human approval, journal-first execution |
+| Language / tooling | Python 3.12, `mypy --strict`, pytest, GitHub Actions CI, Trading 212 API, ntfy push |
+| Verified | 318 tests passing; demo-account order placed, filled and reconciled end to end; forged/expired approval taps ignored |
+| Evaluation | Pre-registered forward-test arena with baselines (cash, SPY, equal-weight, momentum, random portfolios) |
+| Not claimed | Profit. No performance claim is made; see [Status and honesty](#status-and-honesty) |
+
+![Real output of the test suite and type checker](docs/assets/verification.png)
+
+*The image above is generated from the actual `pytest` and `mypy` output by `scripts/make_doc_images.py`.*
 
 ## How it works
 
@@ -108,6 +127,23 @@ gates whatever the analyst writes; it never sees the model's reasoning as instru
 One historical path, a surviving ETF universe and assumed costs; see [reports/REPORT.md](reports/REPORT.md) for every limitation.
 An LLM cannot be backtested honestly on past dates, because the model may already know how they ended, which is why the arena
 scores forward only.
+
+![Baseline backtest: monthly ETF momentum vs buy and hold](reports/equity_curves.png)
+
+*Shown for honesty, not as a selling point: the plain momentum rule trails buy-and-hold. The forward-test arena exists to test the LLM analyst properly.*
+
+## How this was built
+
+Designed, directed and reviewed by the author; the implementation was AI-assisted (Claude Code and Codex). The design decisions are the
+author's: LLM as untrusted proposer, fail-closed execution, human approval for every order, and pre-registered forward evaluation.
+Every safety property is covered by tests rather than trusted to the prompt.
+
+## Roadmap
+
+- [x] Strict signal schema, risk engine, journal-first executor, phone approval, live gate (locked by default)
+- [x] Forward-test arena with pre-registered criteria
+- [ ] Collect enough arena rounds to say whether the analyst beats the baselines (no result yet)
+- [ ] Controlled comparison of several LLM agents (Claude, Grok, Codex) under identical frozen inputs, with strict output validation and replayable scoring (in design; no results)
 
 ## Threat model in one paragraph
 
